@@ -508,13 +508,12 @@ if __name__ == '__main__':
     index = train_data_[train_data_.mRNA_remaining_pct >= 101].index
     train_data_.loc[index, 'mRNA_remaining_pct'] = 100
 
-    round_before = pd.read_csv('lab_in_the_loop_before_rounds.csv')
-    index_before = round_before[round_before.mRNA_remaining_pct >= 101].index
-    round_before.loc[index_before, 'mRNA_remaining_pct'] = 100
+    # round_before = pd.read_csv('lab_in_the_loop_before_rounds.csv')
+    # index_before = round_before[round_before.mRNA_remaining_pct >= 101].index
+    # round_before.loc[index_before, 'mRNA_remaining_pct'] = 100
 
     test_data = pd.read_csv(
         'test_model_path.csv')
-    test_data = test_data[test_data['gene_target_symbol_name']=='MASP2']
 
     train_data_.dropna(
         subset=['siRNA_antisense_seq', 'modified_siRNA_antisense_seq_list'] +
@@ -553,8 +552,8 @@ if __name__ == '__main__':
     target_columns = target_columns + mRNA_embedding_orthrus
     train_data_ = train_data_[target_columns]
     test_data = test_data[target_columns]
-    round_before = round_before[target_columns]
-    train_data_ = pd.concat([train_data_, round_before])
+    # round_before = round_before[target_columns]
+    # train_data_ = pd.concat([train_data_, round_before])
 
     train_data_['Transfection_method'] = train_data_['Transfection_method'].str.upper()
     train_data_['cell_line_donor'] = train_data_['cell_line_donor'].str.upper()
@@ -677,12 +676,12 @@ if __name__ == '__main__':
             'state_dict_model_26_28_modis_x_pretrain.pth'))
         print("Load Pretrain Successfully!")
 
-        final_score, best_final_score, targets, predicts, final_epoch = train_model(
-            model, train_loader, val_loader, criterion,
-            num_epochs=500, device=device, patience=30
-        )
+        # final_score, best_final_score, targets, predicts, final_epoch = train_model(
+        #     model, train_loader, val_loader, criterion,
+        #     num_epochs=500, device=device, patience=30
+        # )
 
-        model.load_state_dict(torch.load('checkpoint/FT_MASP2_round3.pth'))
+        # model.load_state_dict(torch.load('checkpoint/FT_MASP2_round3.pth'))
         print("Load Fine-Tune Successfully!")
         test_dataset = SiRNADataset2(test_data, columns_siRNA, vocab, tokenizer, max_len_siRNA,
                                      columns_mRNA, mRNA_embedding_orthrus, thermodynamics_embedding)
