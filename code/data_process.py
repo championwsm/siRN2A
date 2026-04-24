@@ -3,7 +3,7 @@ from torch.utils.data import Dataset, DataLoader, Sampler
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from collections import Counter
-
+from Bio.Seq import Seq
 
 class GenomicTokenizer:
     def __init__(self, ngram=5, stride=2):
@@ -47,7 +47,6 @@ class SiRNADataset2(Dataset):
         self.tokenizer = tokenizer
         self.columns_mRNA = columns_mRNA
         self.mRNA_embedding_orthrus = mRNA_embedding_orthrus
-        # self.thermodynamics_embedding = thermodynamics_embedding
 
         self.data = df.to_dict(orient='records')
         self.encoded_siRNAs = [
@@ -92,8 +91,7 @@ def get_GC_count(s: pd.Series, name):
     df = s.to_frame()
     df[f"GC_count_{name}_seq"] = (s.str.count("G") +
                                   s.str.count("C")) / s.str.len()
-    return df.iloc[:, 1:]  # 返回特征列
-
+    return df.iloc[:, 1:]
 
 def get_sense_seq_gene(s: pd.Series):
     df = s.to_frame()
@@ -106,7 +104,7 @@ def get_sense_seq_gene(s: pd.Series):
         sense_seq_gene.append(reverse)
     #
     df['siRNA_sense_seq_gene'] = pd.Series(sense_seq_gene)
-    return df.iloc[:, 1:]  # 返回特征列
+    return df.iloc[:, 1:]
 
 def read_data(train_data_path, test_data_path):
     train_data_ = pd.read_csv(
@@ -143,7 +141,6 @@ def read_data(train_data_path, test_data_path):
         'Transfection_method',
         'Duration_after_transfection_h',
         'mRNA_remaining_pct'
-        # 'thermodynamic_properties'
     ]
     mRNA_embedding_orthrus = train_data_.columns[train_data_.columns.str.contains('orthrus')].values.tolist()
     thermodynamics_embedding = train_data_.columns[
@@ -154,30 +151,23 @@ def read_data(train_data_path, test_data_path):
 
     train_data_['Transfection_method'] = train_data_['Transfection_method'].str.upper()
     train_data_['cell_line_donor'] = train_data_['cell_line_donor'].str.upper()
-    # train_data_['gene_target_symbol_name'] = train_data_['gene_target_symbol_name'].str.upper()
 
     test_data['Transfection_method'] = test_data['Transfection_method'].str.upper()
     test_data['cell_line_donor'] = test_data['cell_line_donor'].str.upper()
-    # test_data['gene_target_symbol_name'] = test_data['gene_target_symbol_name'].str.upper()
 
     cell_line_donor_mapping = pd.read_csv(
-        'cell_line_donor_mapping.csv',
+        '../data/cell_line_donor_mapping.csv',
         header=0)
-    # cell_line_donor_mapping = cell_line_donor_mapping.set_index(0)[1].to_dict()
     cell_line_donor_mapping = dict(zip(cell_line_donor_mapping.iloc[:, 0], cell_line_donor_mapping.iloc[:, 1]))
     Transfection_method_mapping = pd.read_csv(
-        'Transfection_method_mapping.csv',
+        '../data/Transfection_method_mapping.csv',
         header=0)
-    # Transfection_method_mapping = Transfection_method_mapping.set_index(0)[1].to_dict()
     Transfection_method_mapping = dict(
         zip(Transfection_method_mapping.iloc[:, 0], Transfection_method_mapping.iloc[:, 1]))
     Duration_mapping = pd.read_csv(
-        'Duration_mapping.csv', header=0)
-    # Duration_mapping = Duration_mapping.set_index(0)[1].to_dict()
+        '../data/Duration_mapping.csv', header=0)
     Duration_mapping = dict(zip(Duration_mapping.iloc[:, 0], Duration_mapping.iloc[:, 1]))
-    # result_dict_float = {key: float(value) for key, value in result_dict.items()}
 
-    # print('siRNA_concentration_mapping:',siRNA_concentration_mapping)
     print('cell_line_donor_mapping:', cell_line_donor_mapping)
     print('Transfection_method_mapping:', Transfection_method_mapping)
     print('Duration_mapping:', Duration_mapping)
@@ -198,13 +188,11 @@ def read_data(train_data_path, test_data_path):
 
     all_data = train_data_
 
-    # Create vocabulary
     tokenizer = GenomicTokenizer(ngram=1, stride=1)
 
     all_tokens = []
     for col in columns_siRNA:
         for seq in all_data[col]:
-            # for seq in train_data_[col]:
             if ' ' in seq:  # Modified sequence
                 all_tokens.extend(seq.split())
             else:

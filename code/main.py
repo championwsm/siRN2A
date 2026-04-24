@@ -8,6 +8,8 @@ from data_process import GenomicTokenizer, GenomicVocab, SiRNADataset2, read_dat
 from models import SiRNAEncoderWithAblation, ContrastiveEncoder, Decoder, Predictor, SiRNAModel
 from train import train_model
 
+import argparse as parser
+
 rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
 resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
 
@@ -24,19 +26,28 @@ if __name__ == '__main__':
     print(torch.cuda.is_available())
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    train_data_path = 'train_data_path.csv'
-    test_data_path = 'test_data_path.csv'
+    parser.add_argument('--train_csv', type=str, required=True, default="train_sample.csv",help='Path to the training data CSV file')
+    parser.add_argument('--test_csv', type=str, required=True, default="test_sample.csv",help='Path to the test data CSV file')
+    parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate for training')
+    parser.add_argument('--bs', type=int, default=256, help='Batch size for training')
+    parser.add_argument('--epoches', type=int, default=500, help='Epochs for training')
+    parser.add_argument('--wd', type=float, default=1e-4, help='weigth decay for training')
+    parser.add_argument('--es', type=int, default=30, help='patience for early stop')
 
-    train_data, test_data, columns_siRNA, vocab, tokenizer, max_len_siRNA, columns_mRNA, mRNA_embedding_orthrus, thermodynamics_embedding, cell_line_donor_mapping, Transfection_method_mapping, Duration_mapping = read_data(train_data_path, test_data_path)
+    args = parser.parse_args()
+    
+    bs = args.bs
+
+    train_data, test_data, columns_siRNA, vocab, tokenizer, max_len_siRNA, columns_mRNA, mRNA_embedding_orthrus, thermodynamics_embedding, cell_line_donor_mapping, Transfection_method_mapping, Duration_mapping = read_data(args.train_csv, args.test_csv)
 
     train_dataset = SiRNADataset2(train_data, columns_siRNA, vocab, tokenizer, max_len_siRNA,
                                   columns_mRNA, mRNA_embedding_orthrus, thermodynamics_embedding)
     val_dataset = SiRNADataset2(test_data, columns_siRNA, vocab, tokenizer, max_len_siRNA,
                                 columns_mRNA, mRNA_embedding_orthrus, thermodynamics_embedding)
 
-    train_loader = DataLoader(train_dataset, batch_size=256, num_workers=4, drop_last=True, shuffle=True,
+    train_loader = DataLoader(train_dataset, batch_size=bs, num_workers=4, drop_last=True, shuffle=True,
                               pin_memory=True, persistent_workers=True, prefetch_factor=4)
-    val_loader = DataLoader(val_dataset, batch_size=256, num_workers=4, pin_memory=True, shuffle=False,
+    val_loader = DataLoader(val_dataset, batch_size=bs, num_workers=4, pin_memory=True, shuffle=False,
                             persistent_workers=True, prefetch_factor=4)
 
     feature_names = ['concentration', 'cell_line', 'transfection_method', 'duration', 'mRNA']
@@ -63,8 +74,10 @@ if __name__ == '__main__':
 
         criterion = nn.L1Loss()
 
-        lr = 5e-5
-        wd = 1e-4
+        lr = args.lr
+        wd = args.wd
+        num_epochs = args.epoches
+        es = args.es
 
         pairwise_optimizer = optim.Adam([{
             'params': model.encoder.parameters(),
@@ -96,7 +109,7 @@ if __name__ == '__main__':
 
         final_score, best_final_score, targets, predicts, final_epoch = train_model(
             model, train_loader, val_loader, criterion,
-            num_epochs=500, device=device, patience=30
+            num_epochs=num_epochs, device=device, patience=es
         )
         best_final_score_prefixed = {'best_' + key: value for key, value in best_final_score.items()}
         final_epoch = {'epoch': final_epoch}
@@ -110,6 +123,5 @@ if __name__ == '__main__':
 
         del model
 
-    # 最终保存为 DataFrame
     results_df = pd.DataFrame(results)
-    results_df.to_csv("Performance.csv", index=False)
+    results_df.to_csv("../rlt/Performance.csv", index=False)

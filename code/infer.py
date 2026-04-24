@@ -13,11 +13,13 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler, MinMaxScaler, No
 
 import matplotlib.pyplot as plt
 from torch.utils.data.sampler import SubsetRandomSampler
-# from Bio.Seq import Seq
+from Bio.Seq import Seq
 from tqdm import tqdm
 import resource
 import itertools
 import json
+
+import argparse
 
 rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
 resource.setrlimit(resource.RLIMIT_NOFILE, (2048, rlimit[1]))
@@ -72,7 +74,6 @@ class SiRNADataset2(Dataset):
         self.tokenizer = tokenizer
         self.columns_mRNA = columns_mRNA
         self.mRNA_embedding_orthrus = mRNA_embedding_orthrus
-        # self.thermodynamics_embedding = thermodynamics_embedding
 
         self.data = df.to_dict(orient='records')
         self.encoded_siRNAs = [
@@ -84,10 +85,6 @@ class SiRNADataset2(Dataset):
             for row in self.data
         ]
 
-        # self.thermodynamics_tensors = [
-        #     [torch.tensor(row[col]) for col in self.thermodynamics_embedding]
-        #     for row in self.data
-        # ]
         self.precomputed_features = [
             (
                 torch.tensor(row['siRNA_concentration'], dtype=torch.float),
@@ -136,9 +133,8 @@ class SiRNAEncoderWithAblation(nn.Module):
 
         self.gru = nn.GRU(embed_dim, embed_dim, num_layers=3, bidirectional=True, batch_first=True, dropout=0.)
 
-        # 7 可变特征 + 3 固定特征 = 10 * embed_dim 输入
         self.fc_mlp = nn.Linear(4 * embed_dim, 4 * embed_dim)
-        self.fc_gru = nn.Linear(8 * embed_dim, 4 * embed_dim)       # seq的条数
+        self.fc_gru = nn.Linear(8 * embed_dim, 4 * embed_dim)       # seq count
 
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.)
@@ -267,7 +263,6 @@ def calculate_metrics(y_true, y_pred, threshold=30, top_k=5):
     if y_true.shape[0] < 2 or y_pred.shape[0] < 2:
         pcc = np.nan
         spcc = np.nan
-        # ndcg = np.nan
     else:
         pcc = scipy.stats.pearsonr(y_true, y_pred).statistic
         spcc = scipy.stats.spearmanr(y_true, y_pred).correlation
@@ -308,157 +303,16 @@ def calculate_metrics(y_true, y_pred, threshold=30, top_k=5):
         'f1': round(f1, 4),
         'pcc': round(pcc, 4),
         'spcc': round(spcc, 4),
-        #   'ndcg': round(ndcg, 4),
         f'precision@{top_k}': round(precision_topk, 4),
-        #   f'recall@{top_k}': round(recall_topk, 4),
         'GT<30': len(postive_idx)
     }
     return result
 
 
-def train_model(model,
-                train_loader,
-                val_loader,
-                criterion,
-                num_epochs=50,
-                device='cuda',
-                patience=10):
-    model.to(device)
-    best_score_metric = -float('inf')
-    best_score = -float('inf')
-    best_model = None
-    counter = 0
-    best_val_loss = float('inf')
-
-    loss_train_total = []
-    loss_valid_total = []
-    score_total = []
-    import time
-
-    for epoch in range(num_epochs):
-        s1 = time.time()
-        model.train()
-        train_loss = 0
-
-        print(f"\nEpoch {epoch + 1}/{num_epochs} ----------------")
-        for inputs1, targets1 in train_loader:
-            for inputs2, targets2 in tqdm(train_loader):
-                inputs1 = [x.to(device) for x in inputs1]
-                inputs2 = [x.to(device) for x in inputs2]
-                targets1 = targets1.to(device)
-                targets2 = targets2.to(device)
-
-                pairwise_optimizer.zero_grad()
-                encoder1 = model(inputs1)
-                encoder2 = model(inputs2)
-
-                concat_feature = torch.cat(
-                    [encoder1, encoder2, encoder1 - encoder2], dim=1)
-                predict_diff = model.decoder(concat_feature)
-                true_diff = targets1 - targets2
-
-                loss_ae_train = criterion(predict_diff.squeeze(),
-                                          true_diff.squeeze())
-                loss_ae_train.backward()
-                pairwise_optimizer.step()
-                train_loss += loss_ae_train.item()
-            break
-
-        train_loss /= len(train_loader)
-
-        print(f"Epoch {epoch + 1} Train Loss: {train_loss:.6f}")
-
-        # Predictor Update
-        if (epoch + 1) % 1 == 0:  # 每个 epoch 更新 predictor
-            for inputs, targets in tqdm(train_loader):
-                inputs = [x.to(device) for x in inputs]
-                targets = targets.to(device)
-                predict_optimizer.zero_grad()
-                latent_feature = model(inputs)
-                predicts = model.predictor(latent_feature)
-                loss_pred_train = criterion(predicts.squeeze(),
-                                            targets.squeeze())
-                loss_pred_train.backward()
-                predict_optimizer.step()
-
-            print("Updated predictor")
-        model.eval()
-        val_loss = 0
-        val_preds = []
-        val_targets = []
-        s2 = time.time()
-        # print('training time:', s2 - s1)
-        with torch.no_grad():
-            for inputs, targets in tqdm(val_loader,
-                                        desc=f'Validating epoch {epoch + 1}'):
-                inputs = [x.to(device) for x in inputs]
-                targets = targets.to(device)
-                latent_feature = model(inputs)
-                predicts = model.predictor(latent_feature)
-                loss = criterion(predicts.squeeze(), targets.squeeze())
-                val_loss += loss.item()
-
-                val_preds.extend(predicts.cpu().numpy())
-                val_targets.extend(targets.cpu().numpy())
-
-        val_loss /= len(val_loader)
-        # print('eval time:', time.time() - s2)
-        print(f"Epoch {epoch + 1} Validation Loss: {val_loss:.6f}")
-
-        # scheduler.step(val_loss)
-
-        loss_train_total.append(train_loss)
-        loss_valid_total.append(val_loss)
-
-        val_preds = np.array(val_preds).squeeze()
-        val_targets = np.array(val_targets).squeeze()
-        score = calculate_metrics(val_targets, val_preds)
-        print('score: ', score)
-        score_total.append(score)
-
-        # score = score['spcc']
-        # if score > best_score:
-        #     best_score = score
-        score_spcc = score['spcc']
-        if score_spcc > best_score_metric:
-            best_score_metric = score_spcc
-            best_score = score
-            best_model = model.state_dict().copy()
-            print(f'New best model found with socre: {best_score_metric:.4f}')
-            torch.save(best_model, 'checkpoint/FT_MASP2_round3.pth')
-            counter = 1
-        else:
-            counter += 1
-
-        # if val_loss < 14:
-        #     break
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            # counter = 1
-            print(f'Best Validation Loss:{best_val_loss}')
-        # else:
-        #     counter += 1
-        print(f'counter = {counter}')
-        if counter >= patience or epoch == (num_epochs - 1):
-            print('Out of Patience! BREAK!')
-            print(f'Best Score: {best_score_metric:.4f}')
-            print(f'New best model found with socre: {best_score_metric:.4f}')
-            score_total.append(best_score)
-            break
-
-    return score_total[-2], score_total[-1], targets.cpu().numpy().squeeze(), predicts.cpu(
-    ).numpy().squeeze(), epoch
-
 def infer_model(model, data_loader, device='cuda'):
-    """
-    使用训练好的模型进行推理
-    :param model: 加载权重的模型
-    :param data_loader: 数据加载器
-    :param device: 计算设备
-    :return: 预测结果和真实标签
-    """
+
     model.to(device)
-    model.eval()  # 设置为评估模式
+    model.eval()
     all_preds = []
     all_targets = []
 
@@ -467,7 +321,6 @@ def infer_model(model, data_loader, device='cuda'):
             inputs = [x.to(device) for x in inputs]
             targets = targets.to(device)
 
-            # 获取模型输出
             latent_feature = model(inputs)
             predicts = model.predictor(latent_feature)
 
@@ -480,7 +333,7 @@ def get_GC_count(s: pd.Series, name):
     df = s.to_frame()
     df[f"GC_count_{name}_seq"] = (s.str.count("G") +
                                   s.str.count("C")) / s.str.len()
-    return df.iloc[:, 1:]  # 返回特征列
+    return df.iloc[:, 1:]  # return feature column
 
 
 def get_sense_seq_gene(s: pd.Series):
@@ -494,7 +347,7 @@ def get_sense_seq_gene(s: pd.Series):
         sense_seq_gene.append(reverse)
     #
     df['siRNA_sense_seq_gene'] = pd.Series(sense_seq_gene)
-    return df.iloc[:, 1:]  # 返回特征列
+    return df.iloc[:, 1:]  # return feature column
 
 
 if __name__ == '__main__':
@@ -502,8 +355,21 @@ if __name__ == '__main__':
     print(torch.cuda.is_available())
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    train_data_ = pd.read_csv(
-        'train_model_path.csv')
+    parser = argparse.ArgumentParser(description="data_input")
+
+    parser.add_argument('--inference_csv', type=str, required=True, help='Path to the test data CSV file')
+    parser.add_argument('--ckpt_path', type=str, default=30, help='path for checkpoint')
+    parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate for training')
+    parser.add_argument('--bs', type=int, default=256, help='Batch size for training')
+    parser.add_argument('--epoches', type=int, default=500, help='Epochs for training')
+    parser.add_argument('--wd', type=float, default=1e-4, help='weigth decay for training')
+    parser.add_argument('--es', type=int, default=30, help='patience for early stop')
+
+    args = parser.parse_args()
+
+    train_data_ = pd.read_csv('train_sample.csv')
+    test_data_ = pd.read_csv(args.infrerence_csv)
+
     train_data_ = train_data_[train_data_['gene_target_symbol_name'].isin(['APOC3', 'XDH', 'PCSK9', 'KHK'])]
     index = train_data_[train_data_.mRNA_remaining_pct >= 101].index
     train_data_.loc[index, 'mRNA_remaining_pct'] = 100
@@ -511,9 +377,6 @@ if __name__ == '__main__':
     # round_before = pd.read_csv('lab_in_the_loop_before_rounds.csv')
     # index_before = round_before[round_before.mRNA_remaining_pct >= 101].index
     # round_before.loc[index_before, 'mRNA_remaining_pct'] = 100
-
-    test_data = pd.read_csv(
-        'test_model_path.csv')
 
     train_data_.dropna(
         subset=['siRNA_antisense_seq', 'modified_siRNA_antisense_seq_list'] +
@@ -523,7 +386,7 @@ if __name__ == '__main__':
                ],
         inplace=True)
 
-    print('train/test shape', train_data_.shape, test_data.shape)
+    print('train/test shape', train_data_.shape, test_data_.shape)
     columns_siRNA = [
         'siRNA_antisense_seq',
         'modified_siRNA_antisense_seq_list',
@@ -544,38 +407,27 @@ if __name__ == '__main__':
         'gene_target_symbol_name',
         'gene_target_seq',
         'mRNA_remaining_pct'
-        # 'thermodynamic_properties'
     ]
     mRNA_embedding_orthrus = train_data_.columns[train_data_.columns.str.contains('orthrus')].values.tolist()
     thermodynamics_embedding = train_data_.columns[
         train_data_.columns.str.contains('thermodynamic_properties')].values.tolist()
     target_columns = target_columns + mRNA_embedding_orthrus
     train_data_ = train_data_[target_columns]
-    test_data = test_data[target_columns]
-    # round_before = round_before[target_columns]
-    # train_data_ = pd.concat([train_data_, round_before])
+    test_data = test_data_[target_columns]
 
     train_data_['Transfection_method'] = train_data_['Transfection_method'].str.upper()
     train_data_['cell_line_donor'] = train_data_['cell_line_donor'].str.upper()
-    # train_data_['gene_target_symbol_name'] = train_data_['gene_target_symbol_name'].str.upper()
 
     test_data['Transfection_method'] = test_data['Transfection_method'].str.upper()
     test_data['cell_line_donor'] = test_data['cell_line_donor'].str.upper()
-    # test_data['gene_target_symbol_name'] = test_data['gene_target_symbol_name'].str.upper()
 
     cell_line_donor_mapping = pd.read_csv('cell_line_donor_mapping.csv', header=0)
-    # cell_line_donor_mapping = cell_line_donor_mapping.set_index(0)[1].to_dict()
     cell_line_donor_mapping = dict(zip(cell_line_donor_mapping.iloc[:, 0], cell_line_donor_mapping.iloc[:, 1]))
     Transfection_method_mapping = pd.read_csv('Transfection_method_mapping.csv', header=0)
-    # Transfection_method_mapping = Transfection_method_mapping.set_index(0)[1].to_dict()
     Transfection_method_mapping = dict(zip(Transfection_method_mapping.iloc[:, 0], Transfection_method_mapping.iloc[:, 1]))
     Duration_mapping = pd.read_csv('Duration_mapping.csv', header=0)
-    # Duration_mapping = Duration_mapping.set_index(0)[1].to_dict()
     Duration_mapping = dict(zip(Duration_mapping.iloc[:, 0], Duration_mapping.iloc[:, 1]))
-    # result_dict_float = {key: float(value) for key, value in result_dict.items()}
 
-
-    # print('siRNA_concentration_mapping:',siRNA_concentration_mapping)
     print('cell_line_donor_mapping:',cell_line_donor_mapping)
     print('Transfection_method_mapping:',Transfection_method_mapping)
     print('Duration_mapping:',Duration_mapping)
@@ -599,8 +451,8 @@ if __name__ == '__main__':
 
     with open('genomic_vocab.json', 'r') as f:
         vocab_list = json.load(f)
-    # 使用词汇表列表重建GenomicVocab对象
-    vocab = GenomicVocab(vocab_list)  # 调用__init__方法，它会自动重建stoi映射
+
+    vocab = GenomicVocab(vocab_list)
     print('Load vocab.json successfully!')
 
     max_len_siRNA = 28
@@ -621,7 +473,7 @@ if __name__ == '__main__':
 
     n = len(feature_names)
     combinations = (
-        [[True] * n]  # 全 True
+        [[True] * n]
     )
 
     results = []
@@ -641,8 +493,10 @@ if __name__ == '__main__':
 
         criterion = nn.L1Loss()
 
-        lr = 1e-3
-        wd = 1e-3
+        lr = args.lr
+        wd = args.wd
+        bs = args.bs
+        ckpt = args.ckpt_path
 
         pairwise_optimizer = optim.Adam([{
             'params': model.encoder.parameters(),
@@ -672,20 +526,13 @@ if __name__ == '__main__':
             'weight_decay': wd
         }])
 
-        model.load_state_dict(torch.load(
-            'state_dict_model_26_28_modis_x_pretrain.pth'))
+        model.load_state_dict(torch.load(ckpt))
         print("Load Pretrain Successfully!")
 
-        # final_score, best_final_score, targets, predicts, final_epoch = train_model(
-        #     model, train_loader, val_loader, criterion,
-        #     num_epochs=500, device=device, patience=30
-        # )
-
-        # model.load_state_dict(torch.load('checkpoint/FT_MASP2_round3.pth'))
         print("Load Fine-Tune Successfully!")
         test_dataset = SiRNADataset2(test_data, columns_siRNA, vocab, tokenizer, max_len_siRNA,
                                      columns_mRNA, mRNA_embedding_orthrus, thermodynamics_embedding)
-        test_loader = DataLoader(test_dataset, batch_size=256, num_workers=4, pin_memory=True, shuffle=False,
+        test_loader = DataLoader(test_dataset, batch_size=bs, num_workers=4, pin_memory=True, shuffle=False,
                                  persistent_workers=True, prefetch_factor=4)
 
         predictions, targets = infer_model(model, test_loader, device)
@@ -696,12 +543,10 @@ if __name__ == '__main__':
             'siRNA_antisense_seq': test_data['siRNA_antisense_seq'],
             'modified_siRNA_sense_seq_list': test_data['modified_siRNA_sense_seq_list'],
             'modified_siRNA_antisense_seq_list': test_data['modified_siRNA_antisense_seq_list'],
-            # 'binding_start':test_data['binding_start_ours'],
             'gene_target_symbol_name': test_data['gene_target_symbol_name'],
-            # 'siRNA_duplex_id': test_data['siRNA_duplex_id'],
             'siRNA_concentration': test_data['siRNA_concentration'],
             'cell_line_donor': test_data['cell_line_donor']
         })
 
-    results_df.to_csv("FT_MASP2_round3.csv", index=False)
+    results_df.to_csv("../rlt/rlt.csv", index=False)
     print('Done!')

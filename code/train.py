@@ -55,7 +55,7 @@ def train_model(model,
         print(f"Epoch {epoch + 1} Train Loss: {train_loss:.6f}")
 
         # Predictor Update
-        if (epoch + 1) % 1 == 0:  # 每个 epoch 更新 predictor
+        if (epoch + 1) % 1 == 0:
             for inputs, targets in tqdm(train_loader):
                 inputs = [x.to(device) for x in inputs]
                 targets = targets.to(device)
@@ -91,8 +91,6 @@ def train_model(model,
         # print('eval time:', time.time() - s2)
         print(f"Epoch {epoch + 1} Validation Loss: {val_loss:.6f}")
 
-        # scheduler.step(val_loss)
-
         loss_train_total.append(train_loss)
         loss_valid_total.append(val_loss)
 
@@ -102,9 +100,6 @@ def train_model(model,
         print('score: ', score)
         score_total.append(score)
 
-        # score = score['spcc']
-        # if score > best_score:
-        #     best_score = score
         score_spcc = score['spcc']
         if score_spcc > best_score_metric:
             best_score_metric = score_spcc
@@ -116,14 +111,9 @@ def train_model(model,
         else:
             counter += 1
 
-        # if val_loss < 14:
-        #     break
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            # counter = 1
             print(f'Best Validation Loss:{best_val_loss}')
-        # else:
-        #     counter += 1
         print(f'counter = {counter}')
         if counter >= patience or epoch == (num_epochs - 1):
             print('Out of Patience! BREAK!')

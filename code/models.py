@@ -19,7 +19,6 @@ class SiRNAEncoderWithAblation(nn.Module):
 
         self.gru = nn.GRU(embed_dim, embed_dim, num_layers=3, bidirectional=True, batch_first=True, dropout=0.)
 
-        # 7 可变特征 + 3 固定特征 = 10 * embed_dim 输入
         self.fc_mlp = nn.Linear(4 * embed_dim, 4 * embed_dim)
         self.fc_gru = nn.Linear(4 * embed_dim, 4 * embed_dim)       # seq的条数
 
@@ -31,7 +30,6 @@ class SiRNAEncoderWithAblation(nn.Module):
             features.append(tensor)
         else:
             features.append(torch.zeros(tensor.shape[0], self.embed_dim, device=tensor.device))
-            # print('setting', name, 'to 0')
 
     def forward(self, x):
         embedded_siRNA = [self.embedding(seq) for seq in x[:-260]]
