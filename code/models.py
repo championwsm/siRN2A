@@ -20,7 +20,7 @@ class SiRNAEncoderWithAblation(nn.Module):
         self.gru = nn.GRU(embed_dim, embed_dim, num_layers=3, bidirectional=True, batch_first=True, dropout=0.)
 
         self.fc_mlp = nn.Linear(4 * embed_dim, 4 * embed_dim)
-        self.fc_gru = nn.Linear(4 * embed_dim, 4 * embed_dim)       # seq的条数
+        self.fc_gru = nn.Linear(4 * embed_dim, 4 * embed_dim)
 
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.)
