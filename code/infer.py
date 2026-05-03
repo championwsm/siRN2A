@@ -248,86 +248,22 @@ class SiRNAModel(nn.Module):
         x = self.encoder(encoded_features)
         return x
 
-
-def calculate_metrics(y_true, y_pred, threshold=30, top_k=5):
-    if isinstance(y_true, pd.DataFrame) or isinstance(y_true, pd.Series):
-        y_true = y_true.values
-    if isinstance(y_pred, pd.DataFrame) or isinstance(y_pred, pd.Series):
-        y_pred = y_pred.values
-    if y_true.ndim > 1:
-        y_true = y_true.ravel()
-    if y_pred.ndim > 1:
-        y_pred = y_pred.ravel()
-    mae = mean_absolute_error(y_true, y_pred)
-
-    if y_true.shape[0] < 2 or y_pred.shape[0] < 2:
-        pcc = np.nan
-        spcc = np.nan
-    else:
-        pcc = scipy.stats.pearsonr(y_true, y_pred).statistic
-        spcc = scipy.stats.spearmanr(y_true, y_pred).correlation
-
-    postive_idx = torch.where(torch.tensor(y_true) <= threshold)[0]
-
-    relevant_idx = torch.argsort(torch.tensor(y_true),
-                                 dim=-1,
-                                 descending=False)[:top_k]
-    target = torch.zeros_like(torch.tensor(y_true))
-    target[relevant_idx] = 1.
-    preds = torch.tensor(y_pred)
-    precision_topk = target[preds.topk(min(top_k, preds.shape[-1]),
-                                       dim=-1,
-                                       largest=False)[1]].sum().float() / top_k
-    precision_topk = precision_topk.item()
-    recall_topk = target[torch.argsort(
-        preds, dim=-1, descending=False)][:top_k].sum().float() / target.sum()
-    recall_topk = recall_topk.item()
-
-    y_true_binary = (y_true <= threshold).astype(int)
-    y_pred_binary = (y_pred <= threshold).astype(int)
-
-    mask = y_pred <= threshold
-    range_mae = mean_absolute_error(y_true[mask],
-                                    y_pred[mask]) if mask.sum() > 0 else np.nan
-
-    precision = precision_score(y_true_binary, y_pred_binary, average='binary')
-    recall = recall_score(y_true_binary, y_pred_binary, average='binary')
-    f1 = 2 * precision * recall / (precision + recall + 1e-8)
-
-    y_pred_auc = np.where(y_pred <= 100, y_pred / 100, 1)
-    rocauc = roc_auc_score((y_true <= threshold), 1-y_pred_auc)
-    result = {
-        'mae': round(mae, 4),
-        'range_mae': round(range_mae, 4),
-        'AUC': round(rocauc, 4),
-        'f1': round(f1, 4),
-        'pcc': round(pcc, 4),
-        'spcc': round(spcc, 4),
-        f'precision@{top_k}': round(precision_topk, 4),
-        'GT<30': len(postive_idx)
-    }
-    return result
-
-
 def infer_model(model, data_loader, device='cuda'):
 
     model.to(device)
     model.eval()
     all_preds = []
-    all_targets = []
 
     with torch.no_grad():
         for inputs, targets in tqdm(data_loader, desc='Inferencing'):
             inputs = [x.to(device) for x in inputs]
-            targets = targets.to(device)
 
             latent_feature = model(inputs)
             predicts = model.predictor(latent_feature)
 
             all_preds.extend(predicts.cpu().numpy())
-            all_targets.extend(targets.cpu().numpy())
 
-    return np.array(all_preds).squeeze(), np.array(all_targets).squeeze()
+    return np.array(all_preds).squeeze()
 
 def get_GC_count(s: pd.Series, name):
     df = s.to_frame()
@@ -370,7 +306,6 @@ if __name__ == '__main__':
     train_data_ = pd.read_csv('train_sample.csv')
     test_data_ = pd.read_csv(args.infrerence_csv)
 
-    train_data_ = train_data_[train_data_['gene_target_symbol_name'].isin(['APOC3', 'XDH', 'PCSK9', 'KHK'])]
     index = train_data_[train_data_.mRNA_remaining_pct >= 101].index
     train_data_.loc[index, 'mRNA_remaining_pct'] = 100
 
@@ -535,9 +470,8 @@ if __name__ == '__main__':
         test_loader = DataLoader(test_dataset, batch_size=bs, num_workers=4, pin_memory=True, shuffle=False,
                                  persistent_workers=True, prefetch_factor=4)
 
-        predictions, targets = infer_model(model, test_loader, device)
+        predictions = infer_model(model, test_loader, device)
         results_df = pd.DataFrame({
-            'true_value': targets,
             'predicted_value': predictions,
             'siRNA_sense_seq': test_data['siRNA_sense_seq'],
             'siRNA_antisense_seq': test_data['siRNA_antisense_seq'],

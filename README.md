@@ -28,10 +28,10 @@ For inference, simply input the file containing the relevant features to run the
 ```bash
 python main.py --inference_csv ../data/inference_data.csv --ckpt_path ./checkpoint/checkpoint.pth
 ```
-
+DOI: 10.5281/zenodo.19877592
 
 # siRNAOD3 Database
-As our work is currently under submission, we have provided sample data for demonstration purposes, which is located in the data/ directory. The complete siRNAOD3 database will be fully open-sourced and available for public download upon the acceptance of this paper. For further inquiries and specific needs, please contact: huzixin@fudan.edu.cn, smwang23@m.fudan.edu.cn.
+As our work is currently under submission, we have provided sample data for demonstration purposes, which is located in the data/ directory. The complete siRNAOD3 database will be fully open-sourced and available for public download and citation upon the acceptance of this paper. For further inquiries and specific needs, please contact: huzixin@fudan.edu.cn, smwang23@m.fudan.edu.cn.
 
 The siRNAOD3 database is dedicated to building a comprehensive and open-source multimodal database for siRNAs. It aims to accelerate the screening and design of siRNA sequences, thereby empowering the rapid development of the siRNA therapeutics field. 
 
